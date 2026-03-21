@@ -1215,9 +1215,9 @@ const HISTORICAL_SCORES = [
   [2022,1,72],[2022,3,68],[2022,6,60],[2022,9,56],[2022,12,54],
   [2023,1,56],[2023,3,58],[2023,6,60],[2023,9,62],[2023,12,63],
   [2024,1,64],[2024,3,65],[2024,6,66],[2024,9,65],[2024,12,63],
-  // 2025 - slowdown + Iran war
+  // 2025-2026: slowdown, then Iran war shock Feb 28
   [2025,1,62],[2025,3,60],[2025,6,58],[2025,9,55],[2025,12,50],
-  [2026,1,42],[2026,2,38],
+  [2026,1,55],[2026,2,53],
 ];
 
 function getHistoricalScore(year, month) {
@@ -1580,28 +1580,18 @@ function renderHero(snapshot, overrideScore = null) {
   const g = scoreToGrade(score);
   const letter = scorePlus(score);
 
-  // Compute prior period scores using the same formula as current score
-  // so trends are always apples-to-apples
-  function priorScore(yr, mo) {
-    const isCurrentMonth = yr === 2026 && mo === 3;
-    return isCurrentMonth
-      ? computeScore(CURRENT_DATA)
-      : computeScore(getSnapshotForPeriod(yr, mo));
-  }
-
+  // Use historical score table for trend comparisons — consistent and calibrated
   const m1yr  = state.viewMonth > 1  ? state.viewYear      : state.viewYear - 1;
   const m1mo  = state.viewMonth > 1  ? state.viewMonth - 1 : 12;
   const m3yr  = state.viewMonth > 3  ? state.viewYear      : state.viewYear - 1;
   const m3mo  = state.viewMonth > 3  ? state.viewMonth - 3 : state.viewMonth - 3 + 12;
   const m6yr  = state.viewMonth > 6  ? state.viewYear      : state.viewYear - 1;
   const m6mo  = state.viewMonth > 6  ? state.viewMonth - 6 : state.viewMonth - 6 + 12;
-  const m12yr = state.viewYear - 1;
-  const m12mo = state.viewMonth;
 
-  const s1  = priorScore(m1yr,  m1mo);
-  const s3  = priorScore(m3yr,  m3mo);
-  const s6  = priorScore(m6yr,  m6mo);
-  const s12 = priorScore(m12yr, m12mo);
+  const s1  = getHistoricalScore(m1yr,  m1mo);
+  const s3  = getHistoricalScore(m3yr,  m3mo);
+  const s6  = getHistoricalScore(m6yr,  m6mo);
+  const s12 = getHistoricalScore(state.viewYear - 1, state.viewMonth);
 
   document.getElementById('heroLetter').textContent = letter;
   document.getElementById('heroLetter').className = `hero-letter ${g.col}`;
