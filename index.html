@@ -1121,13 +1121,18 @@ function scoreToGrade(s) {
 }
 
 function scorePlus(s) {
-  const g = scoreToGrade(s);
-  const rem = s % 15;
-  if (g.letter === 'A' && s < 98) return g.letter + (rem > 10 ? '' : rem > 5 ? '' : '−');
-  if (g.letter === 'F') return g.letter;
-  if (rem > 10) return g.letter + '+';
-  if (rem > 5)  return g.letter;
-  return g.letter + '−';
+  // Each band is 15 points. Position within band determines +/plain/−
+  // Bottom third = minus, middle third = plain, top third = plus
+  if (s >= 85) {
+    if (s >= 98) return 'A';
+    const pos = s - 85; // 0–14
+    return pos >= 10 ? 'A' : pos >= 5 ? 'A' : 'A−';
+  }
+  if (s >= 70) { const pos = s - 70; return pos >= 10 ? 'B+' : pos >= 5 ? 'B' : 'B−'; }
+  if (s >= 55) { const pos = s - 55; return pos >= 10 ? 'C+' : pos >= 5 ? 'C' : 'C−'; }
+  if (s >= 40) { const pos = s - 40; return pos >= 10 ? 'D+' : pos >= 5 ? 'D' : 'D−'; }
+  // F band: 0–39
+  { const pos = s; return pos >= 27 ? 'F+' : pos >= 13 ? 'F' : 'F−'; }
 }
 
 function gradeColor(s) {
@@ -1570,8 +1575,8 @@ function renderMetrics(snapshot) {
 // ════════════════════════════════════════════
 // RENDER HERO
 // ════════════════════════════════════════════
-function renderHero(snapshot) {
-  const score = computeScore(snapshot);
+function renderHero(snapshot, overrideScore = null) {
+  const score = overrideScore !== null ? overrideScore : computeScore(snapshot);
   const g = scoreToGrade(score);
   const letter = scorePlus(score);
 
@@ -1912,9 +1917,30 @@ function navigateTo(year, month) {
 
   const snapshot = isNow ? CURRENT_DATA : getSnapshotForPeriod(year, month);
 
-  renderHero(snapshot);
+  // Use the same score source as the timeline so they always match
+  const overrideScore = isNow ? computeScore(CURRENT_DATA) : getHistoricalScore(year, month);
+
+  renderHero(snapshot, overrideScore);
   renderMetrics(snapshot);
   renderCharts(snapshot);
+
+  // News only shows for recent period
+  if (!isNow) {
+    document.getElementById('newsGrid').innerHTML = `
+      <div class="news-loading-state" style="color:var(--muted2)">
+        ◌ HISTORICAL NEWS UNAVAILABLE FOR THIS PERIOD<br>
+        <span style="font-size:9px;margin-top:6px;display:block">Return to today to view live headlines</span>
+      </div>`;
+    document.getElementById('newsCacheInfo').textContent = `VIEWING ${monthName} ${year} · HISTORICAL MODE`;
+  } else {
+    loadNews();
+  }
+
+  // Update timeline to highlight selected point
+  initTimelineChart(state.timelineRange);
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
   // News only shows for recent period
   if (!isNow) {
@@ -1967,7 +1993,7 @@ async function init() {
   document.getElementById('todayBtn').onclick = () => navigateTo(2026, 3);
 
   // Initial render with current data
-  renderHero(CURRENT_DATA);
+  renderHero(CURRENT_DATA, computeScore(CURRENT_DATA));
   renderMetrics(CURRENT_DATA);
   renderCharts(CURRENT_DATA);
   initTimelineChart(25);
