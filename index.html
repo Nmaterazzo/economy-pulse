@@ -1942,24 +1942,6 @@ function navigateTo(year, month) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-  // News only shows for recent period
-  if (!isNow) {
-    document.getElementById('newsGrid').innerHTML = `
-      <div class="news-loading-state" style="color:var(--muted2)">
-        ◌ HISTORICAL NEWS UNAVAILABLE FOR THIS PERIOD<br>
-        <span style="font-size:9px;margin-top:6px;display:block">Return to today to view live headlines</span>
-      </div>`;
-    document.getElementById('newsCacheInfo').textContent = `VIEWING ${monthName} ${year} · HISTORICAL MODE`;
-  } else {
-    loadNews();
-  }
-
-  // Update timeline to highlight selected point
-  initTimelineChart(state.timelineRange);
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
 // ════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════
