@@ -1131,8 +1131,8 @@ function scorePlus(s) {
   if (s >= 70) { const pos = s - 70; return pos >= 10 ? 'B+' : pos >= 5 ? 'B' : 'B−'; }
   if (s >= 55) { const pos = s - 55; return pos >= 10 ? 'C+' : pos >= 5 ? 'C' : 'C−'; }
   if (s >= 40) { const pos = s - 40; return pos >= 10 ? 'D+' : pos >= 5 ? 'D' : 'D−'; }
-  // F band: 0–39
-  { const pos = s; return pos >= 27 ? 'F+' : pos >= 13 ? 'F' : 'F−'; }
+  // F band: no modifiers — an F is an F
+  return 'F';
 }
 
 function gradeColor(s) {
