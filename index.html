@@ -949,9 +949,13 @@ select.ctrl-select:hover { border-color: var(--accent); }
   <div class="news-header-bar">
     <div class="news-hb-left">
       <span class="news-breaking">LIVE</span>
+      <span id="newsStatusDot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:4px;vertical-align:middle;transition:background 0.4s;"></span>
       <span class="news-cache-info" id="newsCacheInfo">Loading headlines…</span>
     </div>
-    <button class="news-refresh-btn" onclick="refreshNews()">↺ REFRESH</button>
+    <div style="display:flex;gap:6px;">
+      <button class="news-refresh-btn" onclick="clearAndRefreshNews()">✕ CLEAR CACHE</button>
+      <button class="news-refresh-btn" onclick="refreshNews()">↺ REFRESH</button>
+    </div>
   </div>
   <div class="news-grid" id="newsGrid">
     <div class="news-loading-state">
@@ -1747,43 +1751,66 @@ function renderCharts(snapshot) {
 }
 
 // ════════════════════════════════════════════
-// NEWS — NewsAPI with 30-min cache
+// NEWS — rss2json with 30-min cache
 // ════════════════════════════════════════════
+function setNewsStatus(type, msg) {
+  const el = document.getElementById('newsCacheInfo');
+  const dot = document.getElementById('newsStatusDot');
+  el.textContent = msg;
+  if (dot) {
+    dot.style.background =
+      type === 'live'    ? 'var(--grade-a)' :
+      type === 'cached'  ? 'var(--grade-c)' :
+      type === 'loading' ? 'var(--accent)'  :
+                           'var(--grade-f)';
+  }
+}
+
 async function loadNews(forceRefresh = false) {
   const grid = document.getElementById('newsGrid');
-  const cacheInfo = document.getElementById('newsCacheInfo');
   const cached = localStorage.getItem(CFG.NEWS_CACHE_KEY);
   const cacheTime = parseInt(localStorage.getItem(CFG.NEWS_CACHE_TIME_KEY) || '0');
   const age = Date.now() - cacheTime;
   const fresh = age < CFG.NEWS_REFRESH_MS;
 
+  // Serve valid cache if fresh and not forcing refresh
   if (cached && fresh && !forceRefresh) {
     const mins = Math.floor(age / 60000);
-    cacheInfo.textContent = `CACHED · ${mins}m AGO · REFRESHES IN ${30 - mins}m`;
+    setNewsStatus('cached', `CACHED REUTERS FEED · ${mins}m AGO · REFRESHES IN ${30 - mins}m`);
     renderNewsFromRSS(JSON.parse(cached));
     return;
   }
 
-  grid.innerHTML = '<div class="news-loading-state">FETCHING HEADLINES<div class="news-spinner"></div></div>';
-  cacheInfo.textContent = 'FETCHING LIVE HEADLINES…';
+  // Fetch fresh
+  grid.innerHTML = '<div class="news-loading-state">FETCHING REUTERS HEADLINES<div class="news-spinner"></div></div>';
+  setNewsStatus('loading', 'CONNECTING TO REUTERS RSS…');
 
   try {
     const rssUrl = encodeURIComponent(CFG.NEWS_RSS_URL);
     const url = `https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}&api_key=${CFG.NEWS_API_KEY}&count=5`;
+
     const r = await fetch(url);
+
+    // Log full response to console so we can debug
     const data = await r.json();
+    console.log('[EconPulse News] rss2json response:', data);
 
     if (data.status === 'ok' && data.items?.length) {
-      const articles = data.items.slice(0, 5);
-      localStorage.setItem(CFG.NEWS_CACHE_KEY, JSON.stringify(articles));
+      localStorage.setItem(CFG.NEWS_CACHE_KEY, JSON.stringify(data.items.slice(0, 5)));
       localStorage.setItem(CFG.NEWS_CACHE_TIME_KEY, Date.now().toString());
-      cacheInfo.textContent = 'LIVE · JUST UPDATED · NEXT REFRESH IN 30m';
-      renderNewsFromRSS(articles);
+      const ts = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+      setNewsStatus('live', `LIVE · REUTERS · UPDATED ${ts} · NEXT REFRESH IN 30m`);
+      renderNewsFromRSS(data.items.slice(0, 5));
     } else {
-      throw new Error('No articles');
+      // API responded but returned an error status — show it
+      const reason = data.message || data.status || 'Unknown error';
+      console.warn('[EconPulse News] rss2json error:', reason);
+      setNewsStatus('offline', `API ERROR: ${reason.toUpperCase()} · SHOWING FALLBACK`);
+      renderFallbackNews();
     }
   } catch(e) {
-    cacheInfo.textContent = 'OFFLINE MODE · USING CACHED HEADLINES';
+    console.error('[EconPulse News] Fetch failed:', e);
+    setNewsStatus('offline', `NETWORK ERROR · SHOWING FALLBACK HEADLINES`);
     renderFallbackNews();
   }
 }
@@ -1847,6 +1874,11 @@ function renderFallbackNews() {
 }
 
 function refreshNews() { loadNews(true); }
+function clearAndRefreshNews() {
+  localStorage.removeItem(CFG.NEWS_CACHE_KEY);
+  localStorage.removeItem(CFG.NEWS_CACHE_TIME_KEY);
+  loadNews(true);
+}
 
 // ════════════════════════════════════════════
 // NAVIGATION
