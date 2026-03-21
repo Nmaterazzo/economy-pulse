@@ -1800,7 +1800,10 @@ async function loadNews(forceRefresh = false) {
         const data = await r.json();
         console.log('[EconPulse News] Tried:', feedUrl, '→', data.status);
         if (data.status === 'ok' && data.items?.length) {
-          articles = data.items.slice(0, 5);
+          articles = data.items.slice(0, 5).map(item => ({
+            ...item,
+            source: data.feed?.title || new URL(feedUrl).hostname.replace('www.','').replace('.com','').toUpperCase(),
+          }));
           sourceName = data.feed?.title || new URL(feedUrl).hostname.replace('www.','').toUpperCase();
           break;
         }
@@ -1844,7 +1847,7 @@ function renderNewsFromRSS(items) {
       <span class="nc-tag ${tagColors[i % tagColors.length]}" style="border-color:currentColor">${tags[i % tags.length]}</span>
       <div class="nc-headline">${a.title?.replace(/ - .+$/, '') || 'Economic Update'}</div>
       <div class="nc-desc">${desc}…</div>
-      <div class="nc-source">${(a.author || 'REUTERS').toUpperCase()}</div>
+      <div class="nc-source">${(a.author || a.source || 'WIRE').toUpperCase()}</div>
     `;
     card.onclick = () => window.open(a.link, '_blank');
     grid.appendChild(card);
