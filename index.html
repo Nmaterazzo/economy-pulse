@@ -973,7 +973,8 @@ select.ctrl-select:hover { border-color: var(--accent); }
 // ════════════════════════════════════════════
 const CFG = {
   FRED_BASE: 'https://fred.stlouisfed.org/graph/fredgraph.csv',
-  NEWS_API_KEY: 'YOUR_NEWSAPI_KEY', // Replace with your free key from newsapi.org
+  NEWS_API_KEY: 'xkgsyailebldruxk6jtenpp0gbalue6n5yjtuppj',
+  NEWS_RSS_URL: 'https://feeds.reuters.com/reuters/businessNews', // Replace with your free key from newsapi.org
   NEWS_CACHE_KEY: 'econpulse_news_v1',
   NEWS_CACHE_TIME_KEY: 'econpulse_news_time_v1',
   NEWS_REFRESH_MS: 30 * 60 * 1000,
@@ -1759,7 +1760,7 @@ async function loadNews(forceRefresh = false) {
   if (cached && fresh && !forceRefresh) {
     const mins = Math.floor(age / 60000);
     cacheInfo.textContent = `CACHED · ${mins}m AGO · REFRESHES IN ${30 - mins}m`;
-    renderNews(JSON.parse(cached));
+    renderNewsFromRSS(JSON.parse(cached));
     return;
   }
 
@@ -1767,49 +1768,59 @@ async function loadNews(forceRefresh = false) {
   cacheInfo.textContent = 'FETCHING LIVE HEADLINES…';
 
   try {
-    // Try NewsAPI
-    const q = encodeURIComponent('economy OR inflation OR fed OR jobs OR oil OR GDP');
-    const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=5&apiKey=${CFG.NEWS_API_KEY}`;
+    const rssUrl = encodeURIComponent(CFG.NEWS_RSS_URL);
+    const url = `https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}&api_key=${CFG.NEWS_API_KEY}&count=5`;
     const r = await fetch(url);
     const data = await r.json();
 
-    if (data.status === 'ok' && data.articles?.length) {
-      const articles = data.articles.slice(0, 5);
+    if (data.status === 'ok' && data.items?.length) {
+      const articles = data.items.slice(0, 5);
       localStorage.setItem(CFG.NEWS_CACHE_KEY, JSON.stringify(articles));
       localStorage.setItem(CFG.NEWS_CACHE_TIME_KEY, Date.now().toString());
       cacheInfo.textContent = 'LIVE · JUST UPDATED · NEXT REFRESH IN 30m';
-      renderNewsFromAPI(articles);
+      renderNewsFromRSS(articles);
     } else {
       throw new Error('No articles');
     }
   } catch(e) {
-    // Fallback to hardcoded
     cacheInfo.textContent = 'OFFLINE MODE · USING CACHED HEADLINES';
     renderFallbackNews();
   }
 }
 
-function renderNewsFromAPI(articles) {
+function renderNewsFromRSS(items) {
   const grid = document.getElementById('newsGrid');
   const tags = ['ECONOMY','MARKETS','POLICY','INFLATION','ENERGY'];
   const tagColors = ['col-f','col-d','col-c','col-d','col-f'];
   grid.innerHTML = '';
 
-  articles.forEach((a, i) => {
+  items.forEach((a, i) => {
     const card = document.createElement('div');
     card.className = 'news-card' + (i === 0 ? ' news-card-featured' : '');
-    const d = new Date(a.publishedAt);
+    const d = new Date(a.pubDate);
     const dateStr = d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}).toUpperCase();
+    // Strip HTML tags from description
+    const desc = (a.description || '').replace(/<[^>]*>/g, '').slice(0, 120);
     card.innerHTML = `
       <div class="nc-date">${dateStr}</div>
       <span class="nc-tag ${tagColors[i % tagColors.length]}" style="border-color:currentColor">${tags[i % tags.length]}</span>
       <div class="nc-headline">${a.title?.replace(/ - .+$/, '') || 'Economic Update'}</div>
-      <div class="nc-desc">${a.description?.slice(0,120) || ''}…</div>
-      <div class="nc-source">${a.source?.name?.toUpperCase() || 'WIRE'}</div>
+      <div class="nc-desc">${desc}…</div>
+      <div class="nc-source">${(a.author || 'REUTERS').toUpperCase()}</div>
     `;
-    card.onclick = () => window.open(a.url, '_blank');
+    card.onclick = () => window.open(a.link, '_blank');
     grid.appendChild(card);
   });
+}
+
+function renderNewsFromAPI(items) {
+  renderNewsFromRSS(items.map(a => ({
+    pubDate: a.publishedAt,
+    title: a.title,
+    description: a.description,
+    link: a.url,
+    author: a.source?.name,
+  })));
 }
 
 function renderFallbackNews() {
