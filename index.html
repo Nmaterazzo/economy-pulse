@@ -715,7 +715,93 @@ select.ctrl-select:hover { border-color: var(--accent); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── FOOTER ─────────────────────────────── */
+/* WHITE HOUSE SECTION */
+.wh-header-bar {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-left: 3px solid #b22234;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+.wh-breaking {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 13px;
+  letter-spacing: 3px;
+  background: #b22234;
+  color: #fff;
+  padding: 3px 10px;
+}
+.wh-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-top: none;
+  margin-bottom: 2px;
+}
+@media(max-width:640px) { .wh-grid { grid-template-columns: 1fr; } }
+.wh-card {
+  background: var(--surface);
+  padding: 18px 20px;
+  transition: background 0.2s;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.wh-card:hover { background: var(--surface2); }
+.wh-card-featured {
+  grid-column: 1 / -1;
+  border-left: 2px solid #b22234;
+  background: rgba(178,34,52,0.04);
+}
+.wh-tag {
+  display: inline-block;
+  font-family: 'Space Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 2px;
+  padding: 2px 7px;
+  border: 1px solid #b22234;
+  color: #e57373;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+.wh-seal {
+  font-size: 11px;
+  margin-right: 4px;
+}
+.wh-date {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+.wh-headline {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 17px;
+  letter-spacing: 0.5px;
+  line-height: 1.15;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.wh-card-featured .wh-headline { font-size: 21px; }
+.wh-desc {
+  font-size: 12px;
+  color: var(--muted2);
+  line-height: 1.6;
+}
+.wh-source {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  color: #b22234;
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
 .site-footer {
   border-top: 1px solid var(--border);
   padding-top: 20px;
@@ -970,6 +1056,26 @@ select.ctrl-select:hover { border-color: var(--accent); }
     </div>
   </div>
 
+  <!-- WHITE HOUSE -->
+  <div class="section-hd">White House</div>
+  <div class="wh-header-bar">
+    <div class="news-hb-left">
+      <span class="wh-breaking">🇺🇸 OFFICIAL</span>
+      <span id="whStatusDot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-left:10px;margin-right:4px;vertical-align:middle;transition:background 0.4s;"></span>
+      <span class="news-cache-info" id="whCacheInfo">Loading White House releases…</span>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button class="news-refresh-btn" onclick="clearAndRefreshWH()">✕ CLEAR CACHE</button>
+      <button class="news-refresh-btn" onclick="refreshWH()">↺ REFRESH</button>
+    </div>
+  </div>
+  <div class="wh-grid" id="whGrid">
+    <div class="news-loading-state">
+      FETCHING WHITE HOUSE RELEASES
+      <div class="news-spinner"></div>
+    </div>
+  </div>
+
   <footer class="site-footer">
     <span>US ECONOMY PULSE · BUILT ON FRED · EIA · NEWSAPI</span>
     <span id="footerDate">—</span>
@@ -985,13 +1091,14 @@ const CFG = {
   FRED_BASE: 'https://fred.stlouisfed.org/graph/fredgraph.csv',
   NEWS_API_KEY: 'xkgsyailebldruxk6jtenpp0gbalue6n5yjtuppj',
   NEWS_RSS_FEEDS: [
-    { url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258', source: 'CNBC' },
-    { url: 'https://investing.com/rss/news_14.rss', source: 'INVESTING.COM' },
-    { url: 'https://feeds.marketwatch.com/marketwatch/economy-politics', source: 'MARKETWATCH' },
+    { url: 'https://feeds.apnews.com/rss/economy', source: 'AP NEWS' },
+    { url: 'https://feeds.apnews.com/rss/business', source: 'AP NEWS' },
+    { url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664', source: 'CNBC' },
+    { url: 'https://www.investing.com/rss/news.rss', source: 'INVESTING.COM' },
   ], // Replace with your free key from newsapi.org
   NEWS_CACHE_KEY: 'econpulse_news_v1',
   NEWS_CACHE_TIME_KEY: 'econpulse_news_time_v1',
-  NEWS_REFRESH_MS: 30 * 60 * 1000,
+  NEWS_REFRESH_MS: 15 * 60 * 1000,
   FRED_SERIES: {
     UNRATE:   'UNRATE',    // Unemployment
     CPIAUCSL: 'CPIAUCSL',  // CPI
@@ -1846,7 +1953,7 @@ async function loadNews(forceRefresh = false) {
   // Serve valid cache if fresh and not forcing refresh
   if (cached && fresh && !forceRefresh) {
     const mins = Math.floor(age / 60000);
-    setNewsStatus('cached', `CACHED REUTERS FEED · ${mins}m AGO · REFRESHES IN ${30 - mins}m`);
+    setNewsStatus('cached', `CACHED · ${mins}m AGO · REFRESHES IN ${15 - mins}m`);
     renderNewsFromRSS(JSON.parse(cached));
     return;
   }
@@ -1861,7 +1968,7 @@ async function loadNews(forceRefresh = false) {
 
     for (const feed of CFG.NEWS_RSS_FEEDS) {
       try {
-        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&api_key=${CFG.NEWS_API_KEY}&count=5`;
+        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&api_key=${CFG.NEWS_API_KEY}&count=5&_=${Date.now()}`;
         const r = await fetch(url);
         const data = await r.json();
         console.log('[EconPulse News] Tried:', feed.url, '→', data.status);
@@ -1882,7 +1989,7 @@ async function loadNews(forceRefresh = false) {
       localStorage.setItem(CFG.NEWS_CACHE_KEY, JSON.stringify(articles));
       localStorage.setItem(CFG.NEWS_CACHE_TIME_KEY, Date.now().toString());
       const ts = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
-      setNewsStatus('live', `LIVE · ${sourceName} · UPDATED ${ts} · NEXT REFRESH IN 30m`);
+      setNewsStatus('live', `LIVE · ${sourceName} · UPDATED ${ts} · NEXT REFRESH IN 15m`);
       renderNewsFromRSS(articles);
     } else {
       setNewsStatus('offline', `ALL FEEDS FAILED · SHOWING FALLBACK HEADLINES`);
@@ -2004,8 +2111,127 @@ function navigateTo(year, month) {
 }
 
 // ════════════════════════════════════════════
-// INIT
+// WHITE HOUSE NEWS
 // ════════════════════════════════════════════
+const WH_CFG = {
+  FEEDS: [
+    'https://www.whitehouse.gov/briefing-room/feed/',
+    'https://www.whitehouse.gov/news/feed/',
+  ],
+  CACHE_KEY: 'econpulse_wh_v1',
+  CACHE_TIME_KEY: 'econpulse_wh_time_v1',
+  REFRESH_MS: 15 * 60 * 1000,
+};
+
+const WH_TAGS = {
+  'executive-order': { label: 'EXECUTIVE ORDER', col: '#e57373' },
+  'presidential-action': { label: 'PRESIDENTIAL ACTION', col: '#e57373' },
+  'press-briefing': { label: 'PRESS BRIEFING', col: '#ffb74d' },
+  'statement': { label: 'STATEMENT', col: '#81d4fa' },
+  'proclamation': { label: 'PROCLAMATION', col: '#ce93d8' },
+  'default': { label: 'WHITE HOUSE', col: '#ef9a9a' },
+};
+
+function getWHTag(url, title) {
+  const u = (url || '').toLowerCase();
+  const t = (title || '').toLowerCase();
+  if (u.includes('executive-order') || t.includes('executive order')) return WH_TAGS['executive-order'];
+  if (u.includes('presidential-action')) return WH_TAGS['presidential-action'];
+  if (u.includes('press-briefing') || t.includes('press briefing')) return WH_TAGS['press-briefing'];
+  if (u.includes('proclamation') || t.includes('proclamation')) return WH_TAGS['proclamation'];
+  if (u.includes('statement') || t.includes('statement')) return WH_TAGS['statement'];
+  return WH_TAGS['default'];
+}
+
+function setWHStatus(type, msg) {
+  const el = document.getElementById('whCacheInfo');
+  const dot = document.getElementById('whStatusDot');
+  if (el) el.textContent = msg;
+  if (dot) {
+    dot.style.background =
+      type === 'live'    ? '#ef9a9a' :
+      type === 'cached'  ? 'var(--grade-c)' :
+      type === 'loading' ? '#b22234' :
+                           'var(--muted)';
+  }
+}
+
+async function loadWH(forceRefresh = false) {
+  const grid = document.getElementById('whGrid');
+  const cached = localStorage.getItem(WH_CFG.CACHE_KEY);
+  const cacheTime = parseInt(localStorage.getItem(WH_CFG.CACHE_TIME_KEY) || '0');
+  const age = Date.now() - cacheTime;
+  const fresh = age < WH_CFG.REFRESH_MS;
+
+  if (cached && fresh && !forceRefresh) {
+    const mins = Math.floor(age / 60000);
+    setWHStatus('cached', `CACHED · ${mins}m AGO · REFRESHES IN ${15 - mins}m`);
+    renderWH(JSON.parse(cached));
+    return;
+  }
+
+  grid.innerHTML = '<div class="news-loading-state">FETCHING WHITE HOUSE RELEASES<div class="news-spinner"></div></div>';
+  setWHStatus('loading', 'CONNECTING TO WHITEHOUSE.GOV…');
+
+  for (const feedUrl of WH_CFG.FEEDS) {
+    try {
+      const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${CFG.NEWS_API_KEY}&count=5&_=${Date.now()}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      console.log('[EconPulse WH] Tried:', feedUrl, '→', data.status);
+      if (data.status === 'ok' && data.items?.length) {
+        const items = data.items.slice(0, 5);
+        localStorage.setItem(WH_CFG.CACHE_KEY, JSON.stringify(items));
+        localStorage.setItem(WH_CFG.CACHE_TIME_KEY, Date.now().toString());
+        const ts = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+        setWHStatus('live', `LIVE · WHITEHOUSE.GOV · UPDATED ${ts}`);
+        renderWH(items);
+        return;
+      }
+    } catch(e) {
+      console.warn('[EconPulse WH] Feed failed:', feedUrl, e);
+    }
+  }
+
+  // Fallback
+  setWHStatus('offline', 'UNAVAILABLE · CHECK WHITEHOUSE.GOV DIRECTLY');
+  grid.innerHTML = `
+    <div class="news-loading-state" style="color:var(--muted2);grid-column:1/-1">
+      ◌ WHITE HOUSE FEED UNAVAILABLE<br>
+      <span style="font-size:9px;margin-top:6px;display:block">
+        Visit <a href="https://www.whitehouse.gov/briefing-room/" target="_blank" style="color:#e57373">whitehouse.gov/briefing-room</a> directly
+      </span>
+    </div>`;
+}
+
+function renderWH(items) {
+  const grid = document.getElementById('whGrid');
+  grid.innerHTML = '';
+  items.forEach((a, i) => {
+    const tag = getWHTag(a.link, a.title);
+    const card = document.createElement('div');
+    card.className = 'wh-card' + (i === 0 ? ' wh-card-featured' : '');
+    const d = new Date(a.pubDate);
+    const dateStr = d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}).toUpperCase();
+    const desc = (a.description || '').replace(/<[^>]*>/g, '').trim().slice(0, 120);
+    card.innerHTML = `
+      <div class="wh-date"><span class="wh-seal">🏛️</span>${dateStr}</div>
+      <span class="wh-tag" style="border-color:${tag.col};color:${tag.col}">${tag.label}</span>
+      <div class="wh-headline">${a.title || 'White House Release'}</div>
+      ${desc ? `<div class="wh-desc">${desc}…</div>` : ''}
+      <div class="wh-source">WHITEHOUSE.GOV</div>
+    `;
+    card.onclick = () => window.open(a.link, '_blank');
+    grid.appendChild(card);
+  });
+}
+
+function refreshWH() { loadWH(true); }
+function clearAndRefreshWH() {
+  localStorage.removeItem(WH_CFG.CACHE_KEY);
+  localStorage.removeItem(WH_CFG.CACHE_TIME_KEY);
+  loadWH(true);
+}
 function populateYearSelect() {
   const sel = document.getElementById('yearSelect');
   for (let y = 2026; y >= 1990; y--) {
@@ -2041,6 +2267,7 @@ async function init() {
   renderCharts(CURRENT_DATA);
   initTimelineChart(25);
   loadNews();
+  loadWH();
 
   // Set last updated
   document.getElementById('lastUpdated').textContent =
@@ -2048,6 +2275,7 @@ async function init() {
 
   // Auto-refresh news every 30 min
   setInterval(() => loadNews(), CFG.NEWS_REFRESH_MS);
+  setInterval(() => loadWH(), WH_CFG.REFRESH_MS);
 
   // Hide loading overlay
   setTimeout(() => {
