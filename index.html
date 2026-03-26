@@ -2243,6 +2243,60 @@ function populateYearSelect() {
   }
 }
 
+// ════════════════════════════════════════════
+// LIVE PRICES — CL=F (WTI) and RB=F (RBOB)
+// ════════════════════════════════════════════
+async function fetchLivePrices() {
+  const CORS = 'https://corsproxy.io/?';
+  const symbols = ['CL=F', 'RB=F'];
+  const results = {};
+
+  await Promise.all(symbols.map(async sym => {
+    try {
+      const url = `${CORS}${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`)}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta?.regularMarketPrice) {
+        results[sym] = { price: meta.regularMarketPrice, prev: meta.previousClose };
+      }
+    } catch(e) {
+      console.warn('[EconPulse Prices] Failed for', sym, e);
+    }
+  }));
+
+  if (!results['CL=F'] && !results['RB=F']) return;
+
+  // WTI + ~$4 premium = Brent estimate
+  if (results['CL=F']) {
+    const brent = +(results['CL=F'].price + 4).toFixed(2);
+    CURRENT_DATA.oil.current = brent;
+    console.log('[EconPulse Prices] WTI:', results['CL=F'].price, '→ Brent ~$'+brent);
+  }
+
+  // RBOB ($/gal wholesale) + ~$0.75 markup = retail estimate
+  if (results['RB=F']) {
+    const retail = +(results['RB=F'].price + 0.75).toFixed(2);
+    CURRENT_DATA.gas.current = retail;
+    console.log('[EconPulse Prices] RBOB:', results['RB=F'].price, '→ Retail ~$'+retail);
+  }
+
+  // Re-render if viewing current period
+  if (state.isToday) {
+    renderMetrics(CURRENT_DATA);
+    renderHero(CURRENT_DATA, computeScore(CURRENT_DATA));
+    // Update ticker bars
+    document.querySelectorAll('.ticker-item').forEach(item => {
+      const lbl = item.querySelector('span');
+      if (!lbl) return;
+      if (lbl.textContent === 'BRENT CRUDE')
+        item.innerHTML = `<span>BRENT CRUDE</span>~$${CURRENT_DATA.oil.current.toFixed(0)}/BBL`;
+      if (lbl.textContent === 'GAS NATIONAL AVG')
+        item.innerHTML = `<span>GAS NATIONAL AVG</span>~$${CURRENT_DATA.gas.current.toFixed(2)}/GAL`;
+    });
+  }
+}
+
 async function init() {
   // Update header dates
   const now = new Date();
@@ -2268,6 +2322,7 @@ async function init() {
   initTimelineChart(25);
   loadNews();
   loadWH();
+  fetchLivePrices();
 
   // Set last updated
   document.getElementById('lastUpdated').textContent =
@@ -2276,6 +2331,7 @@ async function init() {
   // Auto-refresh news every 30 min
   setInterval(() => loadNews(), CFG.NEWS_REFRESH_MS);
   setInterval(() => loadWH(), WH_CFG.REFRESH_MS);
+  setInterval(() => fetchLivePrices(), 5 * 60 * 1000); // oil & gas every 5 min
 
   // Hide loading overlay
   setTimeout(() => {
