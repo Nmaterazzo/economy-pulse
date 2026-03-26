@@ -2246,53 +2246,115 @@ function populateYearSelect() {
 // ════════════════════════════════════════════
 // LIVE PRICES — CL=F (WTI) and RB=F (RBOB)
 // ════════════════════════════════════════════
-async function fetchLivePrices() {
-  const CORS = 'https://corsproxy.io/?';
-  const symbols = ['CL=F', 'RB=F'];
-  const results = {};
+// ════════════════════════════════════════════
+// LIVE PRICES — CL=F, RB=F, ^TNX, ^IRX
+// ════════════════════════════════════════════
+async function yahooFetch(symbol) {
+  // Try multiple CORS proxies in order
+  const proxies = [
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  ];
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
 
-  await Promise.all(symbols.map(async sym => {
+  for (const proxy of proxies) {
     try {
-      const url = `${CORS}${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`)}`;
-      const r = await fetch(url);
-      const data = await r.json();
+      const r = await fetch(proxy(url));
+      if (!r.ok) continue;
+      let data;
+      const text = await r.text();
+      // allorigins wraps response in {contents: "..."}
+      try {
+        const outer = JSON.parse(text);
+        data = outer.contents ? JSON.parse(outer.contents) : outer;
+      } catch(e) { continue; }
       const meta = data?.chart?.result?.[0]?.meta;
       if (meta?.regularMarketPrice) {
-        results[sym] = { price: meta.regularMarketPrice, prev: meta.previousClose };
+        return { price: meta.regularMarketPrice, prev: meta.previousClose || meta.chartPreviousClose };
       }
     } catch(e) {
-      console.warn('[EconPulse Prices] Failed for', sym, e);
+      console.warn('[EconPulse Prices] Proxy failed for', symbol, e.message);
     }
-  }));
+  }
+  return null;
+}
 
-  if (!results['CL=F'] && !results['RB=F']) return;
+async function fetchLivePrices() {
+  console.log('[EconPulse Prices] Fetching BZ=F, RB=F, FRED DGS2/DGS10...');
 
-  // WTI + ~$4 premium = Brent estimate
-  if (results['CL=F']) {
-    const brent = +(results['CL=F'].price + 4).toFixed(2);
-    CURRENT_DATA.oil.current = brent;
-    console.log('[EconPulse Prices] WTI:', results['CL=F'].price, '→ Brent ~$'+brent);
+  // Fetch FRED yield data via CSV (no key needed)
+  async function fetchFREDValue(seriesId) {
+    try {
+      const url = `https://corsproxy.io/?${encodeURIComponent(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`)}`;
+      const r = await fetch(url);
+      const text = await r.text();
+      const lines = text.trim().split('\n').filter(l => !l.startsWith('DATE'));
+      // Get last non-empty valid value
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const val = parseFloat(lines[i].split(',')[1]);
+        if (!isNaN(val)) return val;
+      }
+    } catch(e) {
+      console.warn('[EconPulse Prices] FRED fetch failed for', seriesId, e.message);
+    }
+    return null;
   }
 
-  // RBOB ($/gal wholesale) + ~$0.75 markup = retail estimate
-  if (results['RB=F']) {
-    const retail = +(results['RB=F'].price + 0.75).toFixed(2);
+  const [bz, rb, dgs2, dgs10] = await Promise.all([
+    yahooFetch('BZ%3DF'),  // Brent crude futures (BZ=F)
+    yahooFetch('RB%3DF'),  // RBOB gasoline (RB=F)
+    fetchFREDValue('DGS2'),   // 2-year Treasury — FRED
+    fetchFREDValue('DGS10'),  // 10-year Treasury — FRED
+  ]);
+
+  console.log('[EconPulse Prices] Results:', { bz, rb, dgs2, dgs10 });
+
+  let updated = false;
+
+  // Brent crude — direct, no premium needed
+  if (bz?.price) {
+    CURRENT_DATA.oil.current = +bz.price.toFixed(2);
+    console.log('[EconPulse Prices] Brent:', bz.price);
+    updated = true;
+  }
+
+  // RBOB + $0.75 retail markup
+  if (rb?.price) {
+    const retail = +(rb.price + 0.75).toFixed(2);
     CURRENT_DATA.gas.current = retail;
-    console.log('[EconPulse Prices] RBOB:', results['RB=F'].price, '→ Retail ~$'+retail);
+    console.log('[EconPulse Prices] RBOB:', rb.price, '→ Retail ~$' + retail);
+    updated = true;
   }
 
-  // Re-render if viewing current period
+  // Real 2s10s spread from FRED (values are already in percent, e.g. 4.25)
+  if (dgs2 !== null && dgs10 !== null) {
+    const spread = +((dgs10 - dgs2) / 100).toFixed(4); // convert to decimal for scoreFunc
+    CURRENT_DATA.yield.current = spread;
+    console.log('[EconPulse Prices] DGS10:', dgs10, 'DGS2:', dgs2, '→ Spread:', (dgs10 - dgs2).toFixed(2) + ' bps');
+    updated = true;
+  }
+
+  if (!updated) {
+    console.warn('[EconPulse Prices] No prices fetched — all sources may be down');
+    return;
+  }
+
+  // Re-render if on current period
   if (state.isToday) {
     renderMetrics(CURRENT_DATA);
     renderHero(CURRENT_DATA, computeScore(CURRENT_DATA));
-    // Update ticker bars
+    // Update ticker
     document.querySelectorAll('.ticker-item').forEach(item => {
       const lbl = item.querySelector('span');
       if (!lbl) return;
       if (lbl.textContent === 'BRENT CRUDE')
-        item.innerHTML = `<span>BRENT CRUDE</span>~$${CURRENT_DATA.oil.current.toFixed(0)}/BBL`;
+        item.innerHTML = `<span>BRENT CRUDE</span>$${CURRENT_DATA.oil.current.toFixed(0)}/BBL`;
       if (lbl.textContent === 'GAS NATIONAL AVG')
         item.innerHTML = `<span>GAS NATIONAL AVG</span>~$${CURRENT_DATA.gas.current.toFixed(2)}/GAL`;
+      if (lbl.textContent === 'YIELD CURVE 2S10S') {
+        const bps = Math.round(CURRENT_DATA.yield.current * 100);
+        item.innerHTML = `<span>YIELD CURVE 2S10S</span>${bps > 0 ? '+' : ''}${bps} BPS`;
+      }
     });
   }
 }
