@@ -2379,6 +2379,7 @@ async function fetchLivePrices() {
   if (state.isToday) {
     renderMetrics(CURRENT_DATA);
     renderHero(CURRENT_DATA, computeScore(CURRENT_DATA));
+    renderCharts(CURRENT_DATA);
     // Update ticker
     document.querySelectorAll('.ticker-item').forEach(item => {
       const lbl = item.querySelector('span');
