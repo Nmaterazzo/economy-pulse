@@ -2250,28 +2250,43 @@ function populateYearSelect() {
 // LIVE PRICES — CL=F, RB=F, ^TNX, ^IRX
 // ════════════════════════════════════════════
 async function yahooFetch(symbol) {
-  // Try multiple CORS proxies in order
   const proxies = [
     url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   ];
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
+  // Request 1 year of daily data so we can extract 1m/3m/6m/12m closes
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
 
   for (const proxy of proxies) {
     try {
       const r = await fetch(proxy(url));
       if (!r.ok) continue;
-      let data;
       const text = await r.text();
-      // allorigins wraps response in {contents: "..."}
+      let data;
       try {
         const outer = JSON.parse(text);
         data = outer.contents ? JSON.parse(outer.contents) : outer;
       } catch(e) { continue; }
-      const meta = data?.chart?.result?.[0]?.meta;
-      if (meta?.regularMarketPrice) {
-        return { price: meta.regularMarketPrice, prev: meta.previousClose || meta.chartPreviousClose };
+      const meta   = data?.chart?.result?.[0]?.meta;
+      const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+      if (!meta?.regularMarketPrice) continue;
+
+      // Extract closes at roughly 1m, 3m, 6m, 12m ago from the daily array
+      const price = meta.regularMarketPrice;
+      const prev  = meta.previousClose || meta.chartPreviousClose;
+
+      let m1 = prev, m3 = prev, m6 = prev, m12 = prev;
+      if (closes && closes.length > 0) {
+        const validCloses = closes.filter(c => c != null);
+        const n = validCloses.length;
+        // approximate trading days: 1m≈21, 3m≈63, 6m≈126, 12m≈252
+        m1  = validCloses[Math.max(0, n - 21)]  ?? prev;
+        m3  = validCloses[Math.max(0, n - 63)]  ?? prev;
+        m6  = validCloses[Math.max(0, n - 126)] ?? prev;
+        m12 = validCloses[0] ?? prev;
       }
+
+      return { price, prev, m1, m3, m6, m12 };
     } catch(e) {
       console.warn('[EconPulse Prices] Proxy failed for', symbol, e.message);
     }
@@ -2283,54 +2298,75 @@ async function fetchLivePrices() {
   console.log('[EconPulse Prices] Fetching BZ=F, RB=F, FRED DGS2/DGS10...');
 
   // Fetch FRED yield data via CSV (no key needed)
-  async function fetchFREDValue(seriesId) {
+  async function fetchFREDSeries(seriesId) {
     try {
       const url = `https://corsproxy.io/?${encodeURIComponent(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`)}`;
       const r = await fetch(url);
       const text = await r.text();
-      const lines = text.trim().split('\n').filter(l => !l.startsWith('DATE'));
-      // Get last non-empty valid value
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const val = parseFloat(lines[i].split(',')[1]);
-        if (!isNaN(val)) return val;
-      }
+      const lines = text.trim().split('\n')
+        .filter(l => !l.startsWith('DATE'))
+        .map(l => { const [date, val] = l.split(','); return { date, val: parseFloat(val) }; })
+        .filter(l => !isNaN(l.val));
+      if (!lines.length) return null;
+      const n = lines.length;
+      return {
+        current: lines[n - 1].val,
+        m1:  lines[Math.max(0, n - 21)].val,
+        m3:  lines[Math.max(0, n - 63)].val,
+        m6:  lines[Math.max(0, n - 126)].val,
+        m12: lines[Math.max(0, n - 252)].val,
+      };
     } catch(e) {
       console.warn('[EconPulse Prices] FRED fetch failed for', seriesId, e.message);
+      return null;
     }
-    return null;
   }
 
   const [bz, rb, dgs2, dgs10] = await Promise.all([
-    yahooFetch('BZ%3DF'),  // Brent crude futures (BZ=F)
-    yahooFetch('RB%3DF'),  // RBOB gasoline (RB=F)
-    fetchFREDValue('DGS2'),   // 2-year Treasury — FRED
-    fetchFREDValue('DGS10'),  // 10-year Treasury — FRED
+    yahooFetch('BZ%3DF'),
+    yahooFetch('RB%3DF'),
+    fetchFREDSeries('DGS2'),
+    fetchFREDSeries('DGS10'),
   ]);
 
-  console.log('[EconPulse Prices] Results:', { bz, rb, dgs2, dgs10 });
+  console.log('[EconPulse Prices] Results:', { bz: bz?.price, rb: rb?.price, dgs2: dgs2?.current, dgs10: dgs10?.current });
 
   let updated = false;
 
   // Brent crude — direct, no premium needed
   if (bz?.price) {
     CURRENT_DATA.oil.current = +bz.price.toFixed(2);
-    console.log('[EconPulse Prices] Brent:', bz.price);
+    CURRENT_DATA.oil.m1      = +bz.m1.toFixed(2);
+    CURRENT_DATA.oil.m3      = +bz.m3.toFixed(2);
+    CURRENT_DATA.oil.m6      = +bz.m6.toFixed(2);
+    CURRENT_DATA.oil.m12     = +bz.m12.toFixed(2);
+    console.log('[EconPulse Prices] Brent:', bz.price, '| 1m:', bz.m1, '3m:', bz.m3, '6m:', bz.m6, '12m:', bz.m12);
     updated = true;
   }
 
-  // RBOB + $0.75 retail markup
+  // RBOB + $0.75 retail markup — apply markup to all periods
   if (rb?.price) {
-    const retail = +(rb.price + 0.75).toFixed(2);
-    CURRENT_DATA.gas.current = retail;
-    console.log('[EconPulse Prices] RBOB:', rb.price, '→ Retail ~$' + retail);
+    const mk = 0.75;
+    CURRENT_DATA.gas.current = +(rb.price + mk).toFixed(2);
+    CURRENT_DATA.gas.m1      = +(rb.m1  + mk).toFixed(2);
+    CURRENT_DATA.gas.m3      = +(rb.m3  + mk).toFixed(2);
+    CURRENT_DATA.gas.m6      = +(rb.m6  + mk).toFixed(2);
+    CURRENT_DATA.gas.m12     = +(rb.m12 + mk).toFixed(2);
+    console.log('[EconPulse Prices] RBOB:', rb.price, '→ Retail ~$' + CURRENT_DATA.gas.current);
     updated = true;
   }
 
-  // Real 2s10s spread from FRED (values are already in percent, e.g. 4.25)
-  if (dgs2 !== null && dgs10 !== null) {
-    const spread = +((dgs10 - dgs2) / 100).toFixed(4); // convert to decimal for scoreFunc
-    CURRENT_DATA.yield.current = spread;
-    console.log('[EconPulse Prices] DGS10:', dgs10, 'DGS2:', dgs2, '→ Spread:', (dgs10 - dgs2).toFixed(2) + ' bps');
+  // Real 2s10s spread from FRED — full history for trend arrows
+  if (dgs2?.current !== null && dgs10?.current !== null && dgs2 && dgs10) {
+    // FRED values are in percent (e.g. 4.25), scoreFunc expects decimal (0.0425)
+    const toDecimal = (ten, two) => +((ten - two) / 100).toFixed(4);
+    CURRENT_DATA.yield.current = toDecimal(dgs10.current, dgs2.current);
+    CURRENT_DATA.yield.m1      = toDecimal(dgs10.m1,  dgs2.m1);
+    CURRENT_DATA.yield.m3      = toDecimal(dgs10.m3,  dgs2.m3);
+    CURRENT_DATA.yield.m6      = toDecimal(dgs10.m6,  dgs2.m6);
+    CURRENT_DATA.yield.m12     = toDecimal(dgs10.m12, dgs2.m12);
+    const bps = Math.round(CURRENT_DATA.yield.current * 100);
+    console.log('[EconPulse Prices] 2s10s:', bps, 'bps | 1m:', Math.round(CURRENT_DATA.yield.m1*100), '3m:', Math.round(CURRENT_DATA.yield.m3*100), '6m:', Math.round(CURRENT_DATA.yield.m6*100), '12m:', Math.round(CURRENT_DATA.yield.m12*100));
     updated = true;
   }
 
