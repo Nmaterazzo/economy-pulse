@@ -2248,8 +2248,8 @@ function populateYearSelect() {
 // ════════════════════════════════════════════
 async function yahooFetch(symbol) {
   const proxies = [
+    url => `https://econ-proxy.nmaterazzo2435.workers.dev/?url=${encodeURIComponent(url)}`,
     url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   ];
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
   for (const proxy of proxies) {
@@ -2281,9 +2281,10 @@ async function yahooFetch(symbol) {
 
 async function fetchFREDSeries(seriesId) {
   try {
-    const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${CFG.FRED_API_KEY}&file_type=json&sort_order=asc&observation_start=1990-01-01`;
+    const fredUrl = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${CFG.FRED_API_KEY}&file_type=json&sort_order=asc&observation_start=1990-01-01`;
+    const url = `https://econ-proxy.nmaterazzo2435.workers.dev/?url=${encodeURIComponent(fredUrl)}`;
     const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) { console.warn('[EconPulse] FRED API error', r.status, 'for', seriesId); return []; }
+    if (!r.ok) { console.warn('[EconPulse] FRED error', r.status, 'for', seriesId); return []; }
     const data = await r.json();
     const lines = (data.observations || [])
       .map(o => ({ date: o.date, val: parseFloat(o.value) }))
@@ -2291,7 +2292,7 @@ async function fetchFREDSeries(seriesId) {
     if (lines.length) console.log('[EconPulse] FRED', seriesId, '→', lines[lines.length-1].date, lines[lines.length-1].val);
     return lines;
   } catch(e) {
-    console.error('[EconPulse] FRED API failed for', seriesId, e.message);
+    console.error('[EconPulse] FRED failed for', seriesId, e.message);
     return [];
   }
 }
