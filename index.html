@@ -2248,8 +2248,8 @@ function populateYearSelect() {
 // ════════════════════════════════════════════
 async function yahooFetch(symbol) {
   const proxies = [
-    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   ];
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
   for (const proxy of proxies) {
@@ -2280,15 +2280,31 @@ async function yahooFetch(symbol) {
 }
 
 async function fetchFREDSeries(seriesId) {
-  try {
-    const url = `https://corsproxy.io/?${encodeURIComponent(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}&vintage_date=${new Date().toISOString().split('T')[0]}`)}`;
-    const r = await fetch(url);
-    const text = await r.text();
-    return text.trim().split('\n')
-      .filter(l => !l.startsWith('DATE'))
-      .map(l => { const [date, val] = l.split(','); return { date, val: parseFloat(val) }; })
-      .filter(l => !isNaN(l.val));
-  } catch(e) { console.warn('[EconPulse] FRED failed for', seriesId, e.message); return []; }
+  const bust = Date.now();
+  const fredUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}&_=${bust}`;
+  const proxies = [
+    { url: `https://api.allorigins.win/get?url=${encodeURIComponent(fredUrl)}`, wrapped: true },
+    { url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(fredUrl)}`, wrapped: false },
+    { url: `https://corsproxy.io/?${encodeURIComponent(fredUrl)}`, wrapped: false },
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy.url, { cache: 'no-store' });
+      if (!r.ok) { console.warn('[EconPulse] FRED proxy HTTP', r.status, 'for', seriesId); continue; }
+      const text = await r.text();
+      const raw = proxy.wrapped ? JSON.parse(text).contents : text;
+      const lines = raw.trim().split('\n')
+        .filter(l => !l.startsWith('DATE'))
+        .map(l => { const [date, val] = l.split(','); return { date, val: parseFloat(val) }; })
+        .filter(l => !isNaN(l.val));
+      if (lines.length) {
+        console.log('[EconPulse] FRED', seriesId, '→', lines[lines.length-1].date, lines[lines.length-1].val);
+        return lines;
+      }
+    } catch(e) { console.warn('[EconPulse] FRED proxy failed for', seriesId, e.message); }
+  }
+  console.error('[EconPulse] All FRED proxies failed for', seriesId);
+  return [];
 }
 
 // Monthly series — index offsets for 1m/3m/6m/12m
