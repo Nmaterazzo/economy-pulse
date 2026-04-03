@@ -1088,7 +1088,7 @@ select.ctrl-select:hover { border-color: var(--accent); }
 // CONFIG
 // ════════════════════════════════════════════
 const CFG = {
-  FRED_BASE: 'https://fred.stlouisfed.org/graph/fredgraph.csv',
+  FRED_API_KEY: '2a86bbf1015c6b03640a7d2af5fa43e7',
   NEWS_API_KEY: 'xkgsyailebldruxk6jtenpp0gbalue6n5yjtuppj',
   NEWS_RSS_FEEDS: [
     { url: 'https://feeds.apnews.com/rss/economy', source: 'AP NEWS' },
@@ -2280,31 +2280,20 @@ async function yahooFetch(symbol) {
 }
 
 async function fetchFREDSeries(seriesId) {
-  const bust = Date.now();
-  const fredUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}&_=${bust}`;
-  const proxies = [
-    { url: `https://api.allorigins.win/get?url=${encodeURIComponent(fredUrl)}`, wrapped: true },
-    { url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(fredUrl)}`, wrapped: false },
-    { url: `https://corsproxy.io/?${encodeURIComponent(fredUrl)}`, wrapped: false },
-  ];
-  for (const proxy of proxies) {
-    try {
-      const r = await fetch(proxy.url, { cache: 'no-store' });
-      if (!r.ok) { console.warn('[EconPulse] FRED proxy HTTP', r.status, 'for', seriesId); continue; }
-      const text = await r.text();
-      const raw = proxy.wrapped ? JSON.parse(text).contents : text;
-      const lines = raw.trim().split('\n')
-        .filter(l => !l.startsWith('DATE'))
-        .map(l => { const [date, val] = l.split(','); return { date, val: parseFloat(val) }; })
-        .filter(l => !isNaN(l.val));
-      if (lines.length) {
-        console.log('[EconPulse] FRED', seriesId, '→', lines[lines.length-1].date, lines[lines.length-1].val);
-        return lines;
-      }
-    } catch(e) { console.warn('[EconPulse] FRED proxy failed for', seriesId, e.message); }
+  try {
+    const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${CFG.FRED_API_KEY}&file_type=json&sort_order=asc&observation_start=1990-01-01`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) { console.warn('[EconPulse] FRED API error', r.status, 'for', seriesId); return []; }
+    const data = await r.json();
+    const lines = (data.observations || [])
+      .map(o => ({ date: o.date, val: parseFloat(o.value) }))
+      .filter(o => !isNaN(o.val));
+    if (lines.length) console.log('[EconPulse] FRED', seriesId, '→', lines[lines.length-1].date, lines[lines.length-1].val);
+    return lines;
+  } catch(e) {
+    console.error('[EconPulse] FRED API failed for', seriesId, e.message);
+    return [];
   }
-  console.error('[EconPulse] All FRED proxies failed for', seriesId);
-  return [];
 }
 
 // Monthly series — index offsets for 1m/3m/6m/12m
