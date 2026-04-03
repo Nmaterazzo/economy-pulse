@@ -2387,12 +2387,29 @@ async function fetchLivePrices() {
   const gdp = fredGDP(gdpRaw);
   if (gdp) { Object.assign(CURRENT_DATA.gdp, gdp); console.log('[EconPulse] GDP:', gdp.current); }
   if (dgs2.length && dgs10.length) {
-    const toD = (ten,two) => +((ten-two)/100).toFixed(4);
-    const d2=fredTrend(dgs2), d10=fredTrend(dgs10);
-    if (d2&&d10) {
-      CURRENT_DATA.yield = { current:toD(d10.current,d2.current), m1:toD(d10.m1,d2.m1), m3:toD(d10.m3,d2.m3), m6:toD(d10.m6,d2.m6), m12:toD(d10.m12,d2.m12) };
-      console.log('[EconPulse] 2s10s:', Math.round(CURRENT_DATA.yield.current*100), 'bps');
-    }
+    const toD = (ten, two) => +((ten - two) / 100).toFixed(4);
+    // DGS2 and DGS10 are daily series — use trading day offsets not monthly
+    // ~21 trading days = 1 month, ~63 = 3 months, ~126 = 6 months, ~252 = 1 year
+    const dailyTrend = (series) => {
+      const n = series.length;
+      return {
+        current: series[n-1].val,
+        m1:      series[Math.max(0,n-22)].val,
+        m3:      series[Math.max(0,n-63)].val,
+        m6:      series[Math.max(0,n-126)].val,
+        m12:     series[Math.max(0,n-252)].val,
+      };
+    };
+    const d2 = dailyTrend(dgs2);
+    const d10 = dailyTrend(dgs10);
+    CURRENT_DATA.yield = {
+      current: toD(d10.current, d2.current),
+      m1:      toD(d10.m1,      d2.m1),
+      m3:      toD(d10.m3,      d2.m3),
+      m6:      toD(d10.m6,      d2.m6),
+      m12:     toD(d10.m12,     d2.m12),
+    };
+    console.log('[EconPulse] 2s10s:', Math.round(CURRENT_DATA.yield.current*100), 'bps | 1m:', Math.round(CURRENT_DATA.yield.m1*100), '3m:', Math.round(CURRENT_DATA.yield.m3*100));
   }
 
   if (state.isToday) {
